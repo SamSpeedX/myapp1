@@ -1,13 +1,21 @@
 #include <QApplication>
 #include <QFile>
+#include <QHeaderView>
 #include <QLabel>
 #include <QProgressBar>
+#include <QTableWidget>
+#include <QTabWidget>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QWidget>
 #include <QTextStream>
 #include <fstream>
 #include <string>
+#include "system/cpu.hpp"
+#include "system/ram.hpp"
+#include "system/disk.hpp"
+#include "system/network.hpp"
+#include "system/process.hpp"
 
 class SystemMonitor : public QWidget
 {
@@ -15,19 +23,39 @@ class SystemMonitor : public QWidget
 
 public:
     SystemMonitor(QWidget *parent = nullptr)
-        : QWidget(parent), cpuLabel(new QLabel(this)), cpuBar(new QProgressBar(this)), ramTotalLabel(new QLabel(this)), ramAvailableLabel(new QLabel(this)), ramFreeLabel(new QLabel(this)), timer(new QTimer(this)), prevTotal(0), prevIdle(0)
+        : QWidget(parent), cpuLabel(new QLabel(this)), cpuBar(new QProgressBar(this)), ramTotalLabel(new QLabel(this)), ramAvailableLabel(new QLabel(this)), ramFreeLabel(new QLabel(this)), diskTotalLabel(new QLabel(this)), diskUsedLabel(new QLabel(this)), diskFreeLabel(new QLabel(this)), netRxLabel(new QLabel(this)), netTxLabel(new QLabel(this)), processTable(new QTableWidget(this)), tabWidget(new QTabWidget(this)), timer(new QTimer(this)), prevTotal(0), prevIdle(0)
     {
         cpuBar->setRange(0, 100);
 
+        QWidget *overviewTab = new QWidget(this);
+        QVBoxLayout *overviewLayout = new QVBoxLayout(overviewTab);
+        overviewLayout->addWidget(cpuLabel);
+        overviewLayout->addWidget(cpuBar);
+        overviewLayout->addWidget(ramTotalLabel);
+        overviewLayout->addWidget(ramAvailableLabel);
+        overviewLayout->addWidget(ramFreeLabel);
+        overviewLayout->addWidget(diskTotalLabel);
+        overviewLayout->addWidget(diskUsedLabel);
+        overviewLayout->addWidget(diskFreeLabel);
+        overviewLayout->addWidget(netRxLabel);
+        overviewLayout->addWidget(netTxLabel);
+
+        processTable->setColumnCount(4);
+        processTable->setHorizontalHeaderLabels({"PID", "Name", "Memory (KB)", "CPU (%)"});
+        processTable->horizontalHeader()->setStretchLastSection(true);
+
+        QWidget *processTab = new QWidget(this);
+        QVBoxLayout *processLayout = new QVBoxLayout(processTab);
+        processLayout->addWidget(processTable);
+
+        tabWidget->addTab(overviewTab, "Overview");
+        tabWidget->addTab(processTab, "Processes");
+
         QVBoxLayout *layout = new QVBoxLayout(this);
-        layout->addWidget(cpuLabel);
-        layout->addWidget(cpuBar);
-        layout->addWidget(ramTotalLabel);
-        layout->addWidget(ramAvailableLabel);
-        layout->addWidget(ramFreeLabel);
+        layout->addWidget(tabWidget);
         setLayout(layout);
         setWindowTitle("My Spec");
-        resize(360, 200);
+        resize(640, 480);
 
         connect(timer, &QTimer::timeout, this, &SystemMonitor::updateUsage);
         timer->start(1000);
@@ -40,6 +68,13 @@ private:
     QLabel *ramTotalLabel;
     QLabel *ramAvailableLabel;
     QLabel *ramFreeLabel;
+    QLabel *diskTotalLabel;
+    QLabel *diskUsedLabel;
+    QLabel *diskFreeLabel;
+    QLabel *netRxLabel;
+    QLabel *netTxLabel;
+    QTableWidget *processTable;
+    QTabWidget *tabWidget;
     QTimer *timer;
     quint64 prevTotal;
     quint64 prevIdle;
@@ -89,16 +124,39 @@ private:
 
     void updateUsage()
     {
-        int cpuUsage = readCpuUsage();
-        const QString totalRam = convertKBtoGB(readMemInfoValue("MemTotal"));
-        const QString availableRam = convertKBtoGB(readMemInfoValue("MemAvailable"));
-        const QString freeRam = convertKBtoGB(readMemInfoValue("MemFree"));
+        const QString cpuUsageText = CPU::usage();
+        const QString totalRam = RAM::total();
+        const QString availableRam = RAM::available();
+        const QString freeRam = RAM::free();
+        const QString totalDisk = Disk::total();
+        const QString usedDisk = Disk::used();
+        const QString freeDisk = Disk::free();
+        const QString rx = Network::receive();
+        const QString tx = Network::transmit();
+        const QVector<ProcessInfo> processes = ProcessMonitor::list();
 
-        cpuLabel->setText(QString("CPU Usage: %1 %").arg(cpuUsage));
-        cpuBar->setValue(cpuUsage);
+        cpuLabel->setText(QString("CPU Usage: %1").arg(cpuUsageText));
+        QString cpuValueString = cpuUsageText;
+        cpuValueString.remove(" %");
+        cpuBar->setValue(cpuValueString.toInt());
         ramTotalLabel->setText(QString("RAM Total: %1").arg(totalRam));
         ramAvailableLabel->setText(QString("RAM Available: %1").arg(availableRam));
         ramFreeLabel->setText(QString("RAM Free: %1").arg(freeRam));
+        diskTotalLabel->setText(QString("Disk Total: %1").arg(totalDisk));
+        diskUsedLabel->setText(QString("Disk Used: %1").arg(usedDisk));
+        diskFreeLabel->setText(QString("Disk Free: %1").arg(freeDisk));
+        netRxLabel->setText(QString("Network Receive: %1").arg(rx));
+        netTxLabel->setText(QString("Network Transmit: %1").arg(tx));
+
+        processTable->setRowCount(processes.size());
+        for (int row = 0; row < processes.size(); ++row)
+        {
+            const ProcessInfo &info = processes[row];
+            processTable->setItem(row, 0, new QTableWidgetItem(QString::number(info.pid)));
+            processTable->setItem(row, 1, new QTableWidgetItem(info.name));
+            processTable->setItem(row, 2, new QTableWidgetItem(QString::number(info.memoryKb)));
+            processTable->setItem(row, 3, new QTableWidgetItem(QString::number(info.cpu, 'f', 1)));
+        }
     }
 
     int readCpuUsage()
@@ -123,8 +181,6 @@ private:
         quint64 steal = parseCpuValue(tokens, 8);
 
         quint64 total = user + nice + system + idle + iowait + irq + softirq + steal;
-        quint64 busy = total - idle;
-
         quint64 deltaTotal = total - prevTotal;
         quint64 deltaIdle = idle - prevIdle;
 

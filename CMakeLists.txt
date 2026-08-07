@@ -11,6 +11,12 @@ find_package(Qt6 REQUIRED COMPONENTS Widgets)
 
 add_executable(myspec
     main.cpp
+    system/cpu.cpp
+    system/ram.cpp
+    system/disk.cpp
+    system/network.cpp
+    system/process.cpp
 )
 
+target_include_directories(myspec PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(myspec PRIVATE Qt6::Widgets)
