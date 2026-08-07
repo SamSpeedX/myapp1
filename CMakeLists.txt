@@ -16,6 +16,10 @@ add_executable(myspec
     system/disk.cpp
     system/network.cpp
     system/process.cpp
+    system/settings.cpp
+    system/history.cpp
+    system/alerts.cpp
+    system/status.cpp
 )
 
 target_include_directories(myspec PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
